@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Share your dream — What's Your Dream</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="index.html" class="brand">What's Your Dream</a>
+  <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+<div class="nav-scrim" id="nav-scrim"></div>
+<nav class="nav-menu" id="nav-menu">
+  <a href="index.html">Home</a>
+  <a href="submit.html" class="active">Submit</a>
+  <a href="about.html">About</a>
+  <a href="auth.html" class="nav-cta" id="nav-auth-link" style="margin-top:16px; text-align:center; border:none;">Log in</a>
+</nav>
+
+<main>
+  <div class="container-narrow">
+    <h1 class="section-title" style="margin-top:40px;">Share your dream</h1>
+    <p class="section-sub">Video entries must be 60 seconds or shorter. Prefer to write instead? Switch to text below.</p>
+
+    <div class="type-toggle">
+      <button type="button" id="tab-video" class="active">🎥 Video</button>
+      <button type="button" id="tab-text">✍️ Text</button>
+    </div>
+
+    <form id="submit-form">
+      <div class="field">
+        <label for="display-name">Your display name</label>
+        <input type="text" id="display-name" placeholder="How should we show your name?" required>
+      </div>
+
+      <div id="video-fields">
+        <div class="field">
+          <label for="video-file">Video file (max 60 seconds)</label>
+          <input type="file" id="video-file" accept="video/*">
+        </div>
+        <div class="progress-bar" id="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      </div>
+
+      <div id="text-fields" style="display:none;">
+        <div class="field">
+          <label for="text-content">Your entry</label>
+          <textarea id="text-content" placeholder="Write what you want the crowd to vote on..."></textarea>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Submit your dream</button>
+      <p class="status-msg" id="status-msg"></p>
+    </form>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Created by <a href="https://dxofficials000.github.io/dxofficials/" target="_blank" rel="noopener">DxOfficials</a>
+</footer>
+<script src="nav.js"></script>
+
+<script type="module">
+  import {
+    auth, db, storage, onAuthStateChanged,
+    collection, addDoc, serverTimestamp,
+    ref, uploadBytesResumable, getDownloadURL, requireAuth, guardActiveUser
+  } from "./firebase.js";
+
+  let currentUser = null;
+  let mode = "video"; // or "text"
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user && !(await guardActiveUser(user))) return;
+    currentUser = user;
+    const navLink = document.getElementById("nav-auth-link");
+    if (user) {
+      navLink.textContent = "My account";
+      navLink.href = "account.html";
+    }
+  });
+
+  const tabVideo = document.getElementById("tab-video");
+  const tabText = document.getElementById("tab-text");
+  const videoFields = document.getElementById("video-fields");
+  const textFields = document.getElementById("text-fields");
+
+  tabVideo.addEventListener("click", () => {
+    mode = "video";
+    tabVideo.classList.add("active");
+    tabText.classList.remove("active");
+    videoFields.style.display = "block";
+    textFields.style.display = "none";
+  });
+  tabText.addEventListener("click", () => {
+    mode = "text";
+    tabText.classList.add("active");
+    tabVideo.classList.remove("active");
+    textFields.style.display = "block";
+    videoFields.style.display = "none";
+  });
+
+  // Reads a video file's duration in the browser BEFORE upload,
+  // so we never waste bandwidth on something that'll get rejected.
+  function getVideoDuration(file) {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(video.src);
+        resolve(video.duration);
+      };
+      video.onerror = () => reject(new Error("Couldn't read video metadata."));
+      video.src = URL.createObjectURL(file);
+    });
+  }
+
+  function setStatus(msg, type = "") {
+    const el = document.getElementById("status-msg");
+    el.textContent = msg;
+    el.className = "status-msg" + (type ? " " + type : "");
+  }
+
+  document.getElementById("submit-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    if (!requireAuth(currentUser, "submit an entry")) return;
+
+    const displayName = document.getElementById("display-name").value.trim();
+    const submitBtn = document.getElementById("submit-btn");
+
+    if (mode === "video") {
+      const fileInput = document.getElementById("video-file");
+      const file = fileInput.files[0];
+      if (!file) { setStatus("Please choose a video file.", "error"); return; }
+
+      try {
+        const duration = await getVideoDuration(file);
+        if (duration > 60) {
+          setStatus(`That video is ${Math.round(duration)}s — please trim it to 60 seconds or under.`, "error");
+          return;
+        }
+      } catch (err) {
+        setStatus("Couldn't read that video file. Try a different one.", "error");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      setStatus("Uploading...");
+      const progressBar = document.getElementById("progress-bar");
+      const progressFill = document.getElementById("progress-fill");
+      progressBar.style.display = "block";
+
+      const path = `videos/${currentUser.uid}/${Date.now()}_${file.name}`;
+      const storageRef = ref(storage, path);
+      const uploadTask = uploadBytesResumable(storageRef, file);
+
+      uploadTask.on("state_changed",
+        (snapshot) => {
+          const pct = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          progressFill.style.width = pct + "%";
+        },
+        (error) => {
+          console.error(error);
+          setStatus("Upload failed. Please try again.", "error");
+          submitBtn.disabled = false;
+        },
+        async () => {
+          const mediaUrl = await getDownloadURL(uploadTask.snapshot.ref);
+          await addDoc(collection(db, "entries"), {
+            type: "video",
+            mediaUrl,
+            uploaderUid: currentUser.uid,
+            uploaderName: displayName || "Anonymous",
+            createdAt: serverTimestamp(),
+            voteCount: 0
+          });
+          setStatus("Submitted! Redirecting...", "success");
+          setTimeout(() => window.location.href = "index.html", 1200);
+        }
+      );
+    } else {
+      const textContent = document.getElementById("text-content").value.trim();
+      if (!textContent) { setStatus("Please write something first.", "error"); return; }
+
+      submitBtn.disabled = true;
+      setStatus("Submitting...");
+      try {
+        await addDoc(collection(db, "entries"), {
+          type: "text",
+          textContent,
+          uploaderUid: currentUser.uid,
+          uploaderName: displayName || "Anonymous",
+          createdAt: serverTimestamp(),
+          voteCount: 0
+        });
+        setStatus("Submitted! Redirecting...", "success");
+        setTimeout(() => window.location.href = "index.html", 1200);
+      } catch (err) {
+        console.error(err);
+        setStatus("Something went wrong. Please try again.", "error");
+        submitBtn.disabled = false;
+      }
+    }
+  });
+</script>
+
+</body>
+</html>
