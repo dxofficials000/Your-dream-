@@ -1,0 +1,61 @@
+# What's Your Dream — setup steps
+
+## 1. Set your admin email (two places — they must match exactly)
+1. `js/firebase.js` → change `ADMIN_EMAIL` from `"youradmin@example.com"` to your real email.
+2. `firestore.rules` → change the email string inside `isAdmin()` to the same address.
+3. `storage.rules` → change the email string inside the `allow delete` line to the same address.
+
+Then sign up for a normal account on the live site using that exact email —
+that account becomes your admin login at `admin-login.html`.
+
+## 2. Enable the Firebase products (console.firebase.google.com → project "dream")
+- **Authentication** → Sign-in method → enable **Email/Password**
+- **Firestore Database** → Create database (start in production mode)
+- **Storage** → Get started (this is where videos live)
+
+## 3. Deploy the security rules
+In the Firebase console:
+- Firestore → Rules tab → paste in `firestore.rules` → Publish
+- Storage → Rules tab → paste in `storage.rules` → Publish
+
+(Or with the Firebase CLI: `firebase deploy --only firestore:rules,storage:rules`)
+
+## 4. First-run index prompt
+The leaderboard and "your entries" queries need a couple of composite
+indexes (sorting + filtering together). The first time you load a page
+that needs one, check the browser console — Firestore prints a direct
+link that creates the missing index with one click. Normal, one-time.
+
+## 5. Hosting
+Plain HTML/CSS/JS, no build step — push the `/pass` folder to a GitHub
+repo and enable GitHub Pages, same as your other projects.
+
+## About the admin panel
+`admin-login.html` and `admin-dashboard.html` are **not linked anywhere**
+on the public site — no nav, no footer link. That's the "hidden" access
+you asked for. A few honest notes:
+- This is security by "nobody knows the URL," backed up by the email
+  check in Firestore/Storage rules — so even if someone finds the URL,
+  they can't do anything without your exact admin email + password.
+- For extra obscurity you can rename these two files to something
+  non-obvious (e.g. `dream-owner-x7k2.html`) before you deploy — just
+  keep the `<script>` imports and internal links between them matching
+  whatever you rename them to.
+- "Deactivating" a user blocks them from voting/commenting/submitting
+  (enforced in Firestore rules) and signs them out on their next page
+  load. It does not delete their Firebase Auth account outright — that
+  needs the Admin SDK via a Cloud Function, which costs a small amount
+  to run. Happy to add that later if you want full account deletion.
+
+## Known limitations (worth knowing, not blockers)
+- **Vote integrity** is enforced by Firestore rules (one vote doc per
+  user per entry), not a server function. Solid against normal abuse;
+  a determined attacker with dev tools could still find edge cases. If
+  this becomes a real competition with a prize on the line, move vote
+  counting to a Cloud Function.
+- No video compression happens client-side — a 60-second phone video
+  can still be 50–100MB. Storage rules cap uploads at 100MB; lower
+  that if you want stricter limits.
+- The homepage's Simon Squibb embed is a real video
+  (`youtube.com/embed/Y4vGNnXv3Pc`) — swap the video ID in `index.html`
+  any time you want a different one.
