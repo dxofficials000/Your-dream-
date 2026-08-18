@@ -41,7 +41,7 @@ import {
 // This same email must ALSO be pasted into firestore.rules (search for
 // ADMIN_EMAIL there) — the two have to match exactly or admin actions
 // will be silently rejected by Firestore.
-export const ADMIN_EMAIL = "youradmin@example.com";
+export const ADMIN_EMAIL = "dxofficials000@gmail.com";
 
 const firebaseConfig = {
   apiKey: "AIzaSyACumi3u3kalpxOig0XypX7LuiZnNZwm6c",
