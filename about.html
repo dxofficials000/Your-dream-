@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>About — What's Your Dream</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Catches any JavaScript error on this page and shows it right here. -->
+<div id="error-banner" style="display:none; background:#4a0f1a; color:#ff9b9b; padding:14px 16px; font-size:0.85rem; font-family:monospace; white-space:pre-wrap; word-break:break-word; border-bottom:1px solid #C81E3A;"></div>
+<script>
+  function showPageError(msg) {
+    var el = document.getElementById("error-banner");
+    el.style.display = "block";
+    el.textContent = "⚠️ Page error: " + msg;
+  }
+  window.addEventListener("error", function (e) {
+    showPageError((e.message || "Unknown error") + " (line " + e.lineno + ")");
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    showPageError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+  });
+</script>
+
+<nav class="site-nav">
+  <a href="index.html" class="brand">What's Your Dream</a>
+  <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+<div class="nav-scrim" id="nav-scrim"></div>
+<nav class="nav-menu" id="nav-menu">
+  <a href="index.html">Home</a>
+  <a href="explore.html">Explore</a>
+  <a href="submit.html">Submit</a>
+  <a href="about.html" class="active">About</a>
+  <a href="auth.html" class="nav-cta" id="nav-auth-link" style="margin-top:16px; text-align:center; border:none;">Log in</a>
+</nav>
+
+<main>
+  <div class="container-narrow">
+    <h1 class="section-title" style="margin-top:40px;">What this is</h1>
+    <p style="color:var(--text-muted); line-height:1.7; font-size:1.02rem;">
+      What's Your Dream is a place to say your dream out loud — as a short
+      video or a few written words — and let people react to it. The crowd
+      votes, comments, and pushes the entries they believe in to the top.
+      The five dreams with the most votes are pinned right on the home page.
+    </p>
+    <p style="color:var(--text-muted); line-height:1.7; font-size:1.02rem;">
+      Every entry needs an account, so votes and comments stay tied to real
+      people instead of bots refreshing a page.
+    </p>
+    <a href="submit.html" class="btn btn-primary" style="margin-top:12px; display:inline-block;">Share your dream</a>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Created by <a href="https://dxofficials000.github.io/dxofficials/" target="_blank" rel="noopener">DxOfficials</a>
+</footer>
+<script src="nav.js"></script>
+
+<script type="module">
+  import { auth, onAuthStateChanged } from "./firebase.js";
+  onAuthStateChanged(auth, (user) => {
+    const navLink = document.getElementById("nav-auth-link");
+    if (user) {
+      navLink.textContent = "My account";
+      navLink.href = "account.html";
+    }
+  });
+</script>
+
+</body>
+</html>
