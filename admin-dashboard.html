@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin dashboard — What's Your Dream</title>
+<link rel="stylesheet" href="style.css">
+<meta name="robots" content="noindex, nofollow">
+</head>
+<body>
+
+<!-- Catches any JavaScript error on this page and shows it right here. -->
+<div id="error-banner" style="display:none; background:#4a0f1a; color:#ff9b9b; padding:14px 16px; font-size:0.85rem; font-family:monospace; white-space:pre-wrap; word-break:break-word; border-bottom:1px solid #C81E3A;"></div>
+<script>
+  function showPageError(msg) {
+    var el = document.getElementById("error-banner");
+    el.style.display = "block";
+    el.textContent = "⚠️ Page error: " + msg;
+  }
+  window.addEventListener("error", function (e) {
+    showPageError((e.message || "Unknown error") + " (line " + e.lineno + ")");
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    showPageError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+  });
+</script>
+
+<nav class="site-nav">
+  <span class="brand">Admin</span>
+  <button class="nav-cta" id="logout-btn" style="border:none; cursor:pointer;">Log out</button>
+</nav>
+
+<main>
+  <h1 class="section-title" style="margin-top:32px;">Registered users</h1>
+  <p class="section-sub">Deactivating a user signs them out and blocks them from voting, commenting, or submitting.</p>
+  <div class="leaderboard" id="user-list">
+    <div class="empty-state">Loading users…</div>
+  </div>
+
+  <h1 class="section-title">All entries</h1>
+  <p class="section-sub">Remove anything that shouldn't be on the platform.</p>
+  <div class="leaderboard" id="entry-list">
+    <div class="empty-state">Loading entries…</div>
+  </div>
+</main>
+
+<script type="module">
+  import {
+    auth, db, ADMIN_EMAIL, onAuthStateChanged, signOut,
+    collection, query, orderBy, getDocs, doc, updateDoc, deleteDoc
+  } from "./firebase.js";
+
+  onAuthStateChanged(auth, (user) => {
+    if (!user || user.email !== ADMIN_EMAIL) {
+      window.location.href = "admin-login.html";
+      return;
+    }
+    loadUsers();
+    loadEntries();
+  });
+
+  document.getElementById("logout-btn").addEventListener("click", async () => {
+    await signOut(auth);
+    window.location.href = "admin-login.html";
+  });
+
+  function timeAgo(date) {
+    if (!date) return "";
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+  }
+
+  async function loadUsers() {
+    const list = document.getElementById("user-list");
+    try {
+      const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        list.innerHTML = `<div class="empty-state">No registered users yet.</div>`;
+        return;
+      }
+      list.innerHTML = "";
+      snap.forEach(docSnap => {
+        const u = docSnap.data();
+        const active = u.active !== false;
+        const row = document.createElement("div");
+        row.className = "rank-row";
+        row.style.gridTemplateColumns = "1fr auto";
+        row.innerHTML = `
+          <div>
+            <div class="rank-name">${u.displayName || "(no name)"} ${active ? "" : "— deactivated"}</div>
+            <div class="rank-meta">${u.email} · joined ${timeAgo(u.createdAt?.toDate?.())}</div>
+          </div>
+          <button class="btn ${active ? "btn-danger" : "btn-outline"} toggle-btn" data-id="${docSnap.id}" data-active="${active}" style="padding:8px 16px; font-size:0.85rem;">
+            ${active ? "Deactivate" : "Reactivate"}
+          </button>
+        `;
+        list.appendChild(row);
+      });
+
+      list.querySelectorAll(".toggle-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const isActive = btn.dataset.active === "true";
+          const label = isActive ? "deactivate" : "reactivate";
+          if (!confirm(`Are you sure you want to ${label} this user?`)) return;
+          try {
+            await updateDoc(doc(db, "users", btn.dataset.id), { active: !isActive });
+            loadUsers();
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't update this user. Please try again.");
+          }
+        });
+      });
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = `<div class="empty-state">Couldn't load users.</div>`;
+    }
+  }
+
+  async function loadEntries() {
+    const list = document.getElementById("entry-list");
+    try {
+      const q = query(collection(db, "entries"), orderBy("createdAt", "desc"));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        list.innerHTML = `<div class="empty-state">No entries yet.</div>`;
+        return;
+      }
+      list.innerHTML = "";
+      snap.forEach(docSnap => {
+        const e = docSnap.data();
+        const row = document.createElement("div");
+        row.className = "rank-row";
+        row.style.gridTemplateColumns = "1fr auto auto";
+        row.innerHTML = `
+          <div>
+            <div class="rank-name">${e.type === "video" ? "🎥" : "✍️"} ${e.uploaderName || "Anonymous"}</div>
+            <div class="rank-meta">${e.voteCount || 0} votes · ${timeAgo(e.createdAt?.toDate?.())}</div>
+          </div>
+          <a href="entry.html?id=${docSnap.id}" class="btn btn-outline" style="padding:8px 16px; font-size:0.85rem;">View</a>
+          <button class="btn btn-danger remove-btn" data-id="${docSnap.id}" data-media="${e.mediaUrl || ""}" style="padding:8px 16px; font-size:0.85rem;">Remove</button>
+        `;
+        list.appendChild(row);
+      });
+
+      list.querySelectorAll(".remove-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          if (!confirm("Remove this entry from the platform? This can't be undone.")) return;
+          try {
+            await deleteDoc(doc(db, "entries", btn.dataset.id));
+            // Note: this removes the entry from the site, but the video
+            // file itself stays on Cloudinary (deleting it needs a signed
+            // server-side request, which isn't possible from the browser
+            // alone). It just sits unused — harmless within the free tier.
+            btn.closest(".rank-row").remove();
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't remove this entry. Please try again.");
+          }
+        });
+      });
+    } catch (err) {
+      console.error(err);
+      list.innerHTML = `<div class="empty-state">Couldn't load entries.</div>`;
+    }
+  }
+</script>
+
+</body>
+</html>
