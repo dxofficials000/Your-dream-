@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Share your dream — What's Your Dream</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Catches any JavaScript error on this page and shows it right here,
+     since there's no way to open browser dev tools on this device. -->
+<div id="error-banner" style="display:none; background:#4a0f1a; color:#ff9b9b; padding:14px 16px; font-size:0.85rem; font-family:monospace; white-space:pre-wrap; word-break:break-word; border-bottom:1px solid #C81E3A;"></div>
+<script>
+  function showPageError(msg) {
+    var el = document.getElementById("error-banner");
+    el.style.display = "block";
+    el.textContent = "⚠️ Page error: " + msg;
+  }
+  window.addEventListener("error", function (e) {
+    showPageError((e.message || "Unknown error") + " (line " + e.lineno + ")");
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    showPageError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+  });
+</script>
+
+<nav class="site-nav">
+  <a href="index.html" class="brand">What's Your Dream</a>
+  <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+<div class="nav-scrim" id="nav-scrim"></div>
+<nav class="nav-menu" id="nav-menu">
+  <a href="index.html">Home</a>
+  <a href="explore.html">Explore</a>
+  <a href="submit.html" class="active">Submit</a>
+  <a href="about.html">About</a>
+  <a href="auth.html" class="nav-cta" id="nav-auth-link" style="margin-top:16px; text-align:center; border:none;">Log in</a>
+</nav>
+
+<main>
+  <div class="container-narrow">
+    <h1 class="section-title" style="margin-top:40px;">Share your dream</h1>
+    <p class="section-sub">Video entries must be 60 seconds or shorter. Prefer to write instead? Switch to text below.</p>
+
+    <div class="type-toggle">
+      <button type="button" id="tab-video" class="active">🎥 Video</button>
+      <button type="button" id="tab-text">✍️ Text</button>
+    </div>
+
+    <form id="submit-form">
+      <div class="field">
+        <label for="display-name">Your display name</label>
+        <input type="text" id="display-name" placeholder="How should we show your name?" required>
+      </div>
+
+      <div id="video-fields">
+        <div class="field">
+          <label for="video-file">Video file (max 60 seconds)</label>
+          <input type="file" id="video-file" accept="video/*">
+        </div>
+        <div class="progress-bar" id="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      </div>
+
+      <div id="text-fields" style="display:none;">
+        <div class="field">
+          <label for="text-content">Your entry</label>
+          <textarea id="text-content" placeholder="Write what you want the crowd to vote on..."></textarea>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-block" id="submit-btn">Submit your dream</button>
+      <p class="status-msg" id="status-msg"></p>
+    </form>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Created by <a href="https://dxofficials000.github.io/dxofficials/" target="_blank" rel="noopener">DxOfficials</a>
+</footer>
+<script src="nav.js"></script>
+
+<script type="module">
+  import {
+    auth, db, onAuthStateChanged,
+    collection, addDoc, serverTimestamp,
+    requireAuth, guardActiveUser,
+    CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET
+  } from "./firebase.js";
+
+  let currentUser = null;
+  let mode = "video"; // or "text"
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user && !(await guardActiveUser(user))) return;
+    currentUser = user;
+    const navLink = document.getElementById("nav-auth-link");
+    if (user) {
+      navLink.textContent = "My account";
+      navLink.href = "account.html";
+    }
+  });
+
+  const tabVideo = document.getElementById("tab-video");
+  const tabText = document.getElementById("tab-text");
+  const videoFields = document.getElementById("video-fields");
+  const textFields = document.getElementById("text-fields");
+
+  tabVideo.addEventListener("click", () => {
+    mode = "video";
+    tabVideo.classList.add("active");
+    tabText.classList.remove("active");
+    videoFields.style.display = "block";
+    textFields.style.display = "none";
+  });
+  tabText.addEventListener("click", () => {
+    mode = "text";
+    tabText.classList.add("active");
+    tabVideo.classList.remove("active");
+    textFields.style.display = "block";
+    videoFields.style.display = "none";
+  });
+
+  // Reads a video file's duration in the browser BEFORE upload,
+  // so we never waste bandwidth on something that'll get rejected.
+  function getVideoDuration(file) {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(video.src);
+        resolve(video.duration);
+      };
+      video.onerror = () => reject(new Error("Couldn't read video metadata."));
+      video.src = URL.createObjectURL(file);
+    });
+  }
+
+  function setStatus(msg, type = "") {
+    const el = document.getElementById("status-msg");
+    el.textContent = msg;
+    el.className = "status-msg" + (type ? " " + type : "");
+  }
+
+  // Uploads straight from the browser to Cloudinary (no server needed).
+  // Uses XMLHttpRequest instead of fetch so we can report upload progress.
+  function uploadToCloudinary(file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`);
+      xhr.timeout = 90000; // 90s hard cap so it never hangs forever silently
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
+        else onProgress(null); // server got bytes but can't compute % — still means it's moving
+      });
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const data = JSON.parse(xhr.responseText);
+          resolve(data.secure_url);
+        } else {
+          // Surface Cloudinary's actual error text (e.g. "preset not found",
+          // "invalid cloud_name") instead of a generic failure message.
+          let detail = xhr.responseText;
+          try { detail = JSON.parse(xhr.responseText)?.error?.message || detail; } catch {}
+          reject(new Error(`Cloudinary rejected the upload (HTTP ${xhr.status}): ${detail}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("Network error — the connection to Cloudinary was interrupted."));
+      xhr.ontimeout = () => reject(new Error("Upload timed out after 90 seconds — the file may be too large or the connection too slow."));
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      xhr.send(formData);
+    });
+  }
+
+  document.getElementById("submit-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    if (!requireAuth(currentUser, "submit an entry")) return;
+
+    const displayName = document.getElementById("display-name").value.trim();
+    const submitBtn = document.getElementById("submit-btn");
+
+    if (mode === "video") {
+      const fileInput = document.getElementById("video-file");
+      const file = fileInput.files[0];
+      if (!file) { setStatus("Please choose a video file.", "error"); return; }
+
+      try {
+        const duration = await getVideoDuration(file);
+        if (duration > 60) {
+          setStatus(`That video is ${Math.round(duration)}s — please trim it to 60 seconds or under.`, "error");
+          return;
+        }
+      } catch (err) {
+        setStatus("Couldn't read that video file. Try a different one.", "error");
+        return;
+      }
+
+      submitBtn.disabled = true;
+      setStatus("Uploading... 0%");
+      const progressBar = document.getElementById("progress-bar");
+      const progressFill = document.getElementById("progress-fill");
+      progressBar.style.display = "block";
+
+      try {
+        const mediaUrl = await uploadToCloudinary(file, (pct) => {
+          if (pct === null) {
+            setStatus("Uploading... (in progress)");
+          } else {
+            progressFill.style.width = pct + "%";
+            setStatus(`Uploading... ${Math.round(pct)}%`);
+          }
+        });
+        await addDoc(collection(db, "entries"), {
+          type: "video",
+          mediaUrl,
+          uploaderUid: currentUser.uid,
+          uploaderName: displayName || "Anonymous",
+          createdAt: serverTimestamp(),
+          voteCount: 0
+        });
+        setStatus("Submitted! Redirecting...", "success");
+        setTimeout(() => window.location.href = "index.html", 1200);
+      } catch (err) {
+        console.error(err);
+        // Show the real error on screen (not just the console) so it can
+        // be screenshotted and diagnosed on mobile.
+        setStatus(err.message || "Upload failed. Please try again.", "error");
+        submitBtn.disabled = false;
+      }
+    } else {
+      const textContent = document.getElementById("text-content").value.trim();
+      if (!textContent) { setStatus("Please write something first.", "error"); return; }
+
+      submitBtn.disabled = true;
+      setStatus("Submitting...");
+      try {
+        await addDoc(collection(db, "entries"), {
+          type: "text",
+          textContent,
+          uploaderUid: currentUser.uid,
+          uploaderName: displayName || "Anonymous",
+          createdAt: serverTimestamp(),
+          voteCount: 0
+        });
+        setStatus("Submitted! Redirecting...", "success");
+        setTimeout(() => window.location.href = "index.html", 1200);
+      } catch (err) {
+        console.error(err);
+        setStatus("Something went wrong. Please try again.", "error");
+        submitBtn.disabled = false;
+      }
+    }
+  });
+</script>
+
+</body>
+</html>
