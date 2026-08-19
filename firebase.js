@@ -38,7 +38,7 @@ import {
 // This same email must ALSO be pasted into firestore.rules (search for
 // ADMIN_EMAIL there) — the two have to match exactly or admin actions
 // will be silently rejected by Firestore.
-export const ADMIN_EMAIL = "youradmin@example.com";
+export const ADMIN_EMAIL = "dxofficials000@gmail.com";
 
 // ⚠️ SET THESE for video uploads. Sign up free at cloudinary.com (no card
 // needed), then: Settings → Upload → Upload presets → Add upload preset →
