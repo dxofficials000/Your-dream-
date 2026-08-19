@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My account — What's Your Dream</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Catches any JavaScript error on this page and shows it right here. -->
+<div id="error-banner" style="display:none; background:#4a0f1a; color:#ff9b9b; padding:14px 16px; font-size:0.85rem; font-family:monospace; white-space:pre-wrap; word-break:break-word; border-bottom:1px solid #C81E3A;"></div>
+<script>
+  function showPageError(msg) {
+    var el = document.getElementById("error-banner");
+    el.style.display = "block";
+    el.textContent = "⚠️ Page error: " + msg;
+  }
+  window.addEventListener("error", function (e) {
+    showPageError((e.message || "Unknown error") + " (line " + e.lineno + ")");
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    showPageError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
+  });
+</script>
+
+<nav class="site-nav">
+  <a href="index.html" class="brand">What's Your Dream</a>
+  <button class="hamburger-btn" id="hamburger-btn" aria-label="Menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</nav>
+<div class="nav-scrim" id="nav-scrim"></div>
+<nav class="nav-menu" id="nav-menu">
+  <a href="index.html">Home</a>
+  <a href="explore.html">Explore</a>
+  <a href="submit.html">Submit</a>
+  <a href="about.html">About</a>
+  <a href="#" id="logout-link" class="nav-cta" style="margin-top:16px; text-align:center; border:none;">Log out</a>
+</nav>
+
+<main>
+  <div class="container-narrow">
+    <h1 class="section-title" style="margin-top:40px;">Your account</h1>
+    <p class="section-sub" id="welcome-msg"></p>
+
+    <h2 class="section-title" style="margin-top:32px;">Your dreams</h2>
+    <div class="leaderboard" id="my-entries">
+      <div class="empty-state">Loading...</div>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  Created by <a href="https://dxofficials000.github.io/dxofficials/" target="_blank" rel="noopener">DxOfficials</a>
+</footer>
+<script src="nav.js"></script>
+
+<script type="module">
+  import {
+    auth, db, onAuthStateChanged, signOut, guardActiveUser,
+    collection, query, where, orderBy, getDocs, doc, deleteDoc
+  } from "./firebase.js";
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      window.location.href = "auth.html";
+      return;
+    }
+    if (!(await guardActiveUser(user))) return;
+    document.getElementById("welcome-msg").textContent = `Logged in as ${user.email}`;
+    loadMyEntries(user.uid);
+  });
+
+  document.getElementById("logout-link").addEventListener("click", async (e) => {
+    e.preventDefault();
+    await signOut(auth);
+    window.location.href = "index.html";
+  });
+
+  async function loadMyEntries(uid) {
+    const container = document.getElementById("my-entries");
+    try {
+      // Filter only (no orderBy) so this never needs a composite index —
+      // sort by date in the browser instead.
+      const q = query(
+        collection(db, "entries"),
+        where("uploaderUid", "==", uid)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        container.innerHTML = `<div class="empty-state">You haven't shared a dream yet. <a href="submit.html" style="color:var(--gold);">Submit your first one</a>.</div>`;
+        return;
+      }
+      container.innerHTML = "";
+      const docs = snap.docs.slice().sort((a, b) => {
+        const ta = a.data().createdAt?.toMillis?.() || 0;
+        const tb = b.data().createdAt?.toMillis?.() || 0;
+        return tb - ta;
+      });
+      docs.forEach(docSnap => {
+        const e = docSnap.data();
+        const row = document.createElement("div");
+        row.className = "rank-row";
+        row.style.gridTemplateColumns = "1fr auto auto";
+        row.innerHTML = `
+          <div>
+            <div class="rank-name">${e.type === "video" ? "🎥 Video entry" : "✍️ Text entry"}</div>
+            <div class="rank-meta">${e.voteCount || 0} votes</div>
+          </div>
+          <a href="entry.html?id=${docSnap.id}" class="btn btn-outline" style="padding:8px 16px; font-size:0.85rem;">View</a>
+          <button class="btn btn-danger delete-btn" data-id="${docSnap.id}" style="padding:8px 16px; font-size:0.85rem;">Delete</button>
+        `;
+        container.appendChild(row);
+      });
+
+      container.querySelectorAll(".delete-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          if (!confirm("Delete this entry? This can't be undone.")) return;
+          try {
+            await deleteDoc(doc(db, "entries", btn.dataset.id));
+            btn.closest(".rank-row").remove();
+          } catch (err) {
+            console.error(err);
+            alert("Couldn't delete this entry. Please try again.");
+          }
+        });
+      });
+    } catch (err) {
+      console.error(err);
+      container.innerHTML = `<div class="empty-state">Couldn't load your entries.</div>`;
+    }
+  }
+</script>
+
+</body>
+</html>
